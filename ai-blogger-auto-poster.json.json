@@ -1,0 +1,519 @@
+{
+  "name": "Daily AI Blogger Auto-Poster",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "8cf61b0f-6120-4966-8d6e-963a6100001a",
+      "name": "Every Day",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1NGuG14x9fFHuIJeQiZID4bTg681Q4XHCB2emegGv2bQ/edit?gid=481087926#gid=481087926",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1NGuG14x9fFHuIJeQiZID4bTg681Q4XHCB2emegGv2bQ/edit?gid=481087926#gid=481087926",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "id": "e65db756-43ea-435d-86a0-842bc920e8a0",
+      "name": "Get Next Topic",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        224,
+        96
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sBXCjGUWf2lWfeqD",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an experienced SEO blog writer. Write a complete blog post about this topic.\n\nTOPIC: {{ $json.Topic }}\n\nRULES\n- Length: about 1,500 words in the article body (minimum 1,400, maximum 1,700). Do not stop short.\n- CURIOSITY: the title must spark curiosity and include the primary keyword, without false clickbait. Open with a hook (surprising question, bold contrast or real reader dilemma) before the answer. Write benefit-led H2 headings, and end sections with a line that pulls the reader to the next one. Frame why the topic is trending now and what readers often get wrong.\n- Write from well-established information only. Never invent quotes, statistics, scores, prices, dates, or names. If you are not sure about a recent detail, describe it in general terms or say it is unconfirmed.\n- Primary keyword = the topic. Work in 6 to 8 related long-tail keywords naturally. Use the primary keyword in the title, in the first 100 words, in one H2, and in the conclusion. No keyword stuffing.\n- Structure: a gripping short intro (2-3 sentences that hook the reader and promise what they will learn), then 5 to 7 H2 sections with H3s where useful, one bulleted list, one small \"key facts\" table, an H2 \"Frequently Asked Questions\" with 4 questions, and a conclusion.\n- Short paragraphs (max 3 sentences), simple English, active voice, friendly but credible.\n- Put the exact text [IMAGE_1] on its own line right after the intro, and [IMAGE_2] on its own line at the middle of the article.\n- Article = HTML only (h2, h3, p, ul, li, table, tr, th, td, strong). No h1, no html or body tags, no markdown, no CSS.\n- image_prompt: a clean editorial illustration or photo-style scene that fits the topic. No text, no logos, no real people's faces.\n\nOUTPUT FORMAT (exactly this, nothing before or after):\n===META===\n{\"title\":\"max 60 characters, includes the primary keyword\",\"description\":\"140 to 155 characters\",\"labels\":[\"3 to 5 short labels\"],\"keywords\":[\"...\"],\"image_prompt\":\"...\",\"image_alt\":\"...\"}\n===ARTICLE===\n<p>...</p>",
+        "batching": {}
+      },
+      "id": "ac849582-33f4-4502-bedb-0eff9da909d4",
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        464,
+        16
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 60000
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash",
+        "options": {
+          "maxOutputYOUR_API_KEY_HEREs": 32768,
+          "temperature": 0.7
+        }
+      },
+      "id": "42d28f6e-a0ee-4242-a77c-a89e662ed665",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        384,
+        272
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "ZFx4GOEaheHHiiDW",
+          "name": "Google Gemini(PaLM) Api account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst text = $json.text || \"\";\nconst metaIdx = text.indexOf(\"===META===\");\nconst artIdx = text.indexOf(\"===ARTICLE===\");\nif (metaIdx === -1 || artIdx === -1) {\n  throw new Error(\"Model output is missing the ===META=== or ===ARTICLE=== section.\");\n}\n\nconst metaText = text.slice(metaIdx + 10, artIdx);\nconst first = metaText.indexOf(\"{\");\nconst last = metaText.lastIndexOf(\"}\");\nif (first === -1 || last === -1) {\n  throw new Error(\"Could not find the JSON metadata block.\");\n}\nconst meta = JSON.parse(metaText.slice(first, last + 1));\n\nconst fence = String.fromCharCode(96, 96, 96);\nlet content = text.slice(artIdx + 13).split(fence + \"html\").join(\"\").split(fence).join(\"\").trim();\n\n// Drop any stray marker the model repeats at the end of the article.\nconst strayIdx = content.indexOf(\"===\");\nif (strayIdx !== -1) {\n  content = content.slice(0, strayIdx).trim();\n}\n\n// [IMAGE_1] / [IMAGE_2] markers are replaced in the Publish to Blogger node.\n\nconst wordCount = content.replace(/<[^>]*>/g, \" \").split(/\\s+/).filter(Boolean).length;\nif (!meta.title || !content) {\n  throw new Error(\"Title or article HTML is missing.\");\n}\nif (wordCount < 1000) {\n  throw new Error(\"Article is too short (\" + wordCount + \" words). Stopping before publishing.\");\n}\n\nreturn [{\n  json: {\n    title: meta.title,\n    description: meta.description || \"\",\n    labels: meta.labels || [],\n    keywords: meta.keywords || [],\n    imageAlt: meta.image_alt || \"\",\n    imagePrompt: meta.image_prompt || (\"Editorial illustration for a blog post about \" + meta.title + \", no text, no logos\"),\n    content,\n    wordCount\n  }\n}];\n"
+      },
+      "id": "1fe18bbf-433b-47f3-8f37-af535ebb8e3e",
+      "name": "Code in JavaScript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-image-1-mini",
+          "mode": "list"
+        },
+        "prompt": "={{ $('Get Next Topic').item.json.Image_prompt || $json.imagePrompt }}",
+        "options": {}
+      },
+      "id": "05e92da2-ac83-4e47-b91b-6ad5874413a7",
+      "name": "Generate an image1",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        880,
+        208
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 10000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.imgbb.com/1/upload",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "image",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6a329da8-c63d-4f8a-bfef-3527416ca0b2",
+      "name": "Upload Image to imgbb",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1072,
+        480
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "sendTo": "mayracocmax@gmail.com",
+        "subject": "=Approve today's post: {{ $(\"Code in JavaScript\").item.json.title }}",
+        "message": "=<h2>Preview: {{ $(\"Code in JavaScript\").item.json.title }}</h2><p><i>{{ $(\"Code in JavaScript\").item.json.description }}</i></p><p>Labels: {{ $(\"Code in JavaScript\").item.json.labels.join(\", \") }} | Words: {{ $(\"Code in JavaScript\").item.json.wordCount }}</p>{{ $json.data && $json.data.url ? \"<div style='text-align:center'><img src='\" + $json.data.url + \"' style='max-width:100%;height:auto' /></div>\" : \"<p><i>(No image generated for this post.)</i></p>\" }}<hr>{{ $(\"Code in JavaScript\").item.json.content.split('[IMAGE_1]').join('').split('[IMAGE_2]').join('') }}",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "approveLabel": "Approve and publish"
+          }
+        },
+        "options": {
+          "limitWaitTime": {
+            "values": {
+              "resumeAmount": 12
+            }
+          }
+        }
+      },
+      "id": "07e0fb03-eba9-4176-9796-b9d0f4bf33da",
+      "name": "Email Preview for Approval",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        864,
+        -128
+      ],
+      "webhookId": "1cccdc54-45ce-4600-aae2-0049b9400686"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "approved",
+              "leftValue": "={{ $json.data.approved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6d60ff3-e002-44e8-beb7-9e35ac419cbd",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "=POST",
+        "url": "https://www.googleapis.com/blogger/v3/blogs/5058169831289840324/posts/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  kind: \"blogger#post\",\n  title: $(\"Code in JavaScript\").item.json.title,\n  content: (function () {\n    var c = $(\"Code in JavaScript\").item.json.content;\n    var up = $(\"Upload Image to imgbb\").item.json;\n    var img = up.data && up.data.url ? '<div style=\"text-align:center\"><img src=\"' + up.data.url + '\" alt=\"' + ($(\"Code in JavaScript\").item.json.imageAlt || '').replace(/\"/g, '') + '\" style=\"max-width:100%;height:auto\" /></div>' : '';\n    c = c.split('[IMAGE_2]').join('');\n    return c.indexOf('[IMAGE_1]') !== -1 ? c.split('[IMAGE_1]').join(img) : img + c;\n  })(),\n  labels: $(\"Code in JavaScript\").item.json.labels\n}) }}",
+        "options": {}
+      },
+      "id": "cce9d067-d8a7-499b-83d3-f33cfb9292d2",
+      "name": "Publish to Blogger",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        992,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1gCwINrKJ0v5xAjFcGAqh-NBnVC_aGBnlezKGSWtRF7o/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1gCwINrKJ0v5xAjFcGAqh-NBnVC_aGBnlezKGSWtRF7o/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Topic": "={{ $('Get Next Topic').item.json.Topic }}",
+            "Status": "Published",
+            "Blogger_URL": "={{ $json.url }}"
+          },
+          "matchingColumns": [
+            "Topic"
+          ],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Topic",
+              "displayName": "Topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Image_prompt",
+              "displayName": "Image_prompt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": " Image_link",
+              "displayName": " Image_link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Title Article_HTML",
+              "displayName": "Title Article_HTML",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SEO_Description",
+              "displayName": "SEO_Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Labels",
+              "displayName": "Labels",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Blogger_URL",
+              "displayName": "Blogger_URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "b1c7b247-4e53-497c-9667-35a4a22abe0d",
+      "name": "Mark Topic Published",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1184,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Here I have make automatic post generator for my website'",
+        "width": 336,
+        "color": 2
+      },
+      "id": "f4b1c2a8-2e3e-4a06-9fd5-1453c7f985b4",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        480
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every Day": {
+      "main": [
+        [
+          {
+            "node": "Get Next Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Next Topic": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Generate an image1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate an image1": {
+      "main": [
+        [
+          {
+            "node": "Upload Image to imgbb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Image to imgbb": {
+      "main": [
+        [
+          {
+            "node": "Email Preview for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Preview for Approval": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Publish to Blogger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish to Blogger": {
+      "main": [
+        [
+          {
+            "node": "Mark Topic Published",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "a2f5bda4-a031-4d98-8342-412179810387",
+  "meta": {
+    "instanceId": "67bf588b8c150f83dc6e3416dd839568e60df3d26761de1f03c8997971a41757"
+  },
+  "nodeGroups": [],
+  "id": "ZgXYj7KqG8XRuptH",
+  "tags": []
+}
