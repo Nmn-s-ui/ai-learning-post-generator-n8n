@@ -1,0 +1,269 @@
+{
+  "name": "Pinterest Affiliate Poster (Gemini)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -384,
+        -128
+      ],
+      "id": "2545838a-60ed-4d5a-84a2-eeca508df0c4"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/1Bbb5AqQt2_hUa2lgXZTXhVF-Ot88bEC4aUPWvqDya2Q/edit?gid=0#gid=0",
+          "__regex": "https:\\/\\/(?:drive|docs)\\.google\\.com(?:\\/.*|)\\/d\\/([0-9a-zA-Z\\-_]+)(?:\\/.*|)"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Bbb5AqQt2_hUa2lgXZTXhVF-Ot88bEC4aUPWvqDya2Q/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "name": "Read Products Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -160,
+        -128
+      ],
+      "id": "00ce3513-b0f5-44ca-ae3e-9e6c0e108243",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sBXCjGUWf2lWfeqD",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst product = rows.find(r => r.title && r.affiliate_link && (!r.posted || String(r.posted).trim() === ''));\nif (!product) { return []; }\n\nconst prompt = `Write Pinterest pin copy for this product.\\n\\nProduct: ${product.title}\\nCategory: ${product.category}\\n\\nRules:\\n- Title: max 100 characters, include a searchable keyword people would type into Pinterest.\\n- Description: 2-3 sentences, max 400 characters, natural tone, benefit-focused, end with a short call to action.\\n- Add 3-5 relevant hashtags at the end of the description.\\n- Do not invent specs, prices, discounts, or reviews.\\n\\nReturn ONLY JSON: {\"title\": \"...\", \"description\": \"...\", \"alt_text\": \"...\"}`;\n\nreturn [{\n  json: {\n    ...product,\n    geminiBody: {\n      contents: [{ parts: [{ text: prompt }] }],\n      generationConfig: { responseMimeType: 'application/json', temperature: 0.8 }\n    }\n  }\n}];"
+      },
+      "name": "Pick Next Product",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        -416
+      ],
+      "id": "cbe5e0e4-6531-461c-b78c-b4c0bd644060"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.geminiBody) }}",
+        "options": {}
+      },
+      "name": "Gemini Writes Pin Copy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        64,
+        -176
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "id": "c7095db7-aa5a-45ea-9ae4-4cf976990b70",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ecvLkIKTYTe6JxJt",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const BOARD_ID = 'YOUR_PINTEREST_BOARD_ID';\nconst DISCLOSURE = '#affiliate #ad';\n\nconst product = $('Pick Next Product').first().json;\nlet text = $input.first().json.candidates[0].content.parts[0].text;\ntext = text.replace(/```json|```/g, '').trim();\nconst copy = JSON.parse(text);\n\nconst pinPayload = {\n  board_id: BOARD_ID,\n  link: product.affiliate_link,\n  title: String(copy.title).slice(0, 100),\n  description: (copy.description + ' ' + DISCLOSURE).slice(0, 800),\n  alt_text: String(copy.alt_text || copy.title).slice(0, 500),\n  media_source: { source_type: 'image_url', url: product.image_url }\n};\n\nreturn [{ json: { pinPayload } }];"
+      },
+      "name": "Build Pin Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        -128
+      ],
+      "id": "2daafa7d-b3b2-4b8f-bd24-0e4611c71d53"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-sandbox.pinterest.com/v5/pins",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.pinPayload) }}",
+        "options": {}
+      },
+      "name": "Post to Pinterest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        288,
+        -384
+      ],
+      "id": "a03db984-45de-4c98-8b15-49dc88a8d5f4",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "BPfYlfVSH9R9IiiI",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "affiliate_link": "={{ $('Pick Next Product').first().json.affiliate_link }}",
+            "posted": "yes"
+          },
+          "matchingColumns": [
+            "affiliate_link"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "name": "Mark as Posted",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        688,
+        -48
+      ],
+      "id": "8c44220a-1c7e-460d-b48d-37942ffdfaa8",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sBXCjGUWf2lWfeqD",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 6 Hours": {
+      "main": [
+        [
+          {
+            "node": "Read Products Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Products Sheet": {
+      "main": [
+        [
+          {
+            "node": "Pick Next Product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Next Product": {
+      "main": [
+        [
+          {
+            "node": "Gemini Writes Pin Copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Writes Pin Copy": {
+      "main": [
+        [
+          {
+            "node": "Build Pin Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Pin Payload": {
+      "main": [
+        [
+          {
+            "node": "Post to Pinterest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Pinterest": {
+      "main": [
+        [
+          {
+            "node": "Mark as Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "7311eb8b-bc24-44ca-8025-82edd98f9c95",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "67bf588b8c150f83dc6e3416dd839568e60df3d26761de1f03c8997971a41757"
+  },
+  "nodeGroups": [],
+  "id": "mxXoyQrPT7ZWbtxc",
+  "tags": []
+}
