@@ -11,7 +11,7 @@ An n8n automation that generates blog posts with AI and publishes them automatic
 - Updates a spreadsheet to track each post
 
 ## Tools used
-n8n, [AI model you used], Gmail, Google Sheets, [blogging platform you publish to]
+n8n, [AI model you used], Gmail, Google Sheets, blogging platform you publish to-> (https://www.mytrendyinfo.com/)
 
 ## How it works
 1. Trigger: [schedule / manual]
